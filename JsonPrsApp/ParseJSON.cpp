@@ -1,8 +1,6 @@
 #include "stdafx.h"
 #include "ParseJSON.h"
 
-#include <string>
-
 namespace Wankuma::JSON
 {
 inline  bool IsWhiteSpace( std::string_view::value_type value )
@@ -283,55 +281,56 @@ bool APIENTRY ParseJSON( const std::string_view& rowData, ParseCallBack& proc )
 	return proc( NotificationId::EndParse, rowData.substr( offset ) );	//	なにか残ってるという想定で全部送り込んでやる(さらにネスト的な処理があってもよいという判定)
 }
 //	テキストのエスケープ処理を解決する
-std::string APIENTRY ExtractEscapeString( const std::string_view& escapeValue )
+std::string APIENTRY UnescapeString( const std::string_view& value )
 {
 	std::string_view::size_type pos = 0;
-	std::string resultU8Str;
+	std::string resultStr;
 	auto prevPos = pos;
-	while( pos < escapeValue.length() )
+	auto SetPrevStr = [&]()
+	{
+		if( prevPos != std::string_view::npos )
+		{
+			resultStr += value.substr( prevPos, pos-prevPos );
+		}
+	};
+	while( pos < value.length() )
 	{
 		//	エスケープ記号
-		if( escapeValue[pos] == '\\' )
+		if( value[pos] == '\\' )
 		{
-			if( prevPos != std::string_view::npos )
-			{
-				resultU8Str += escapeValue.substr( prevPos, pos-prevPos );
-			}
-			prevPos = std::string_view::npos;	//	エスケープ文字内部なのでリセット
+			SetPrevStr();
+			prevPos = std::string_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
 			++pos;	//	無視
-			switch( escapeValue[pos] )
+			switch( value[pos] )
 			{
 			case 'u':
-				//	規定で4文字だけど念のため。厳格チェックしない場合は+4でスキップしてよい
 				{
 					wchar_t ch = 0;
-					for( int cnt = 0 ; cnt < 4 && isxdigit( escapeValue[pos] ) ; ++cnt, ++pos )
+					for( int cnt = 0 ; cnt < 4 && isxdigit( value[pos] ) ; ++cnt, ++pos )
 					{
-						if( isdigit( escapeValue[pos] ) )
+						if( isdigit( value[pos] ) )
 						{
-							ch = (ch << 4) + (escapeValue[pos] - '0');
+							ch = (ch << 4) + (value[pos] - '0');
 						}
 						else
 						{
-							ch = (ch<<4) + ( (toupper( escapeValue[pos] ) - 'A') + 0xA);
+							ch = (ch<<4) + ( (toupper( value[pos] ) - 'A') + 0xA);
 						}
 					}
 					char utf8str[4+1];	//	UTF8は最大4文字に分解される
 					WideCharToMultiByte( CP_UTF8, 0, &ch, 1, utf8str, 4+1, nullptr, nullptr );
-					resultU8Str += utf8str;
+					resultStr += utf8str;
 				}
 				break;
-			//	厳格チェックしない場合は、このあたりはコメントアウトでよい
-			case '"':
-			case '\\':
-			case '/':
-			case 'b':
-			case 'n':
-			case 'r':
-			case 't':
-				resultU8Str += escapeValue[pos];
+			//	そのまま利用していい文字
+			case '"': case '\\': case '/':
+				resultStr += value[pos];
 				++pos;
-				break;
+			//	制御文字なのでちゃんと変換する
+			case 'b':	resultStr += '\b';	break;
+			case 'n':	resultStr += '\n';	break;
+			case 'r':	resultStr += '\r';	break;
+			case 't':	resultStr += '\t';	break;
 			default:
 				return false;
 			}
@@ -345,10 +344,56 @@ std::string APIENTRY ExtractEscapeString( const std::string_view& escapeValue )
 			++pos;
 		}
 	}
-	if( prevPos != std::string_view::npos )
-	{
-		resultU8Str += escapeValue.substr( prevPos, pos-prevPos );
-	}
-	return resultU8Str;
+	SetPrevStr();
+	return resultStr;
 }
+std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeNonAscii )
+{
+	std::wstring_view::size_type pos = 0;
+	std::wstring resultStr;
+	auto prevPos = pos;
+	auto SetPrevStr = [&]()
+	{
+		if( prevPos != std::wstring_view::npos )
+		{
+			resultStr += value.substr( prevPos, pos-prevPos );
+			prevPos = std::wstring_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
+		}
+	};
+	while( pos < value.length() )
+	{
+		//	1バイトで表現できない文字をエスケープする
+		if( value[pos] > 0xFF && escapeNonAscii )
+		{
+			SetPrevStr();
+			//	wchar_t の数値を16進文字列にするのは。。。ないんだよねぇ。。。
+			wchar_t	buff[5];
+			resultStr += L"\\u";
+			_ultow_s( value[pos], buff, 16 );
+			resultStr += buff;
+		}
+		else
+		{
+			switch( value[pos] )
+			{
+			case L'\b':	SetPrevStr();	resultStr += L"\\b";	break;
+			case L'\n':	SetPrevStr();	resultStr += L"\\n";	break;
+			case L'\r':	SetPrevStr();	resultStr += L"\\r";	break;
+			case L'\t':	SetPrevStr();	resultStr += L"\\t";	break;
+			case L'/':	SetPrevStr();	resultStr += L"\\/";	break;
+			case L'"':	SetPrevStr();	resultStr += L"\\\"";	break;
+			case L'\\':	SetPrevStr();	resultStr += L"\\\\";	break;
+			default:
+				if( prevPos == std::wstring_view::npos )
+				{
+					prevPos = pos;
+				}
+			}
+		}
+		++pos;
+	}
+	SetPrevStr();
+	return resultStr;
+}
+
 }//	namespace Wankuma::JSON

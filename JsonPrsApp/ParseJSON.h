@@ -5,13 +5,11 @@
 //	できるだけ型は既定のものを使う！
 //	JSONデータの書式の規定は http://www.json.org/json-ja.html を参照(2018/11/05時点)
 
-//	VC++以外ではビルドしてない！
+//	C++17 モードが有効になっていないとコンパイルできない
 
-#pragma once
-
-#include <string_view>
-#include <functional>
-#include <utility>
+#include <string>		// std::string
+#include <string_view>	// std::string_view
+#include <functional>	// std::fucntion
 
 namespace Wankuma::JSON
 {
@@ -32,7 +30,7 @@ enum NotificationId
 	Digit,			//	数値データ
 	True,			//	true
 	False,			//	false
-	Null,			//	null
+	Null,			//	null	
 };
 
 //	パース結果のコールバック受け取りメソッド( bool func( Wankuma::JSON::NodeType nodeType, const std::string_view& node ) )
@@ -40,7 +38,10 @@ using ParseCallBack = std::function<bool( NotificationId id, const std::string_v
 
 //	JSONパースエンジン本体
 bool APIENTRY ParseJSON( const std::string_view& rowData, ParseCallBack& proc );
-std::string APIENTRY ExtractEscapeString( const std::string_view& escapeValue );
+//	string_view が参照しているエスケープされたままのテキストを、UTF8テキストに変換する
+std::string APIENTRY UnescapeString( const std::string_view& value );
+//	wstring ベースで、エスケープ処理を行う(UTF8への変換は行わない点に注意)
+std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeNonAscii );
 
 //	JSONデータの汎用型クラスを作る？として。。。pair<key,value> valueを std::any にするか、variant<int,double,u8string,vector<int,double,u8string>>にするか。。。かなぁ？
 
