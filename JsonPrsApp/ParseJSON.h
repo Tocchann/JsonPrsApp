@@ -13,7 +13,7 @@
 #include <functional>
 #include <utility>
 
-namespace Morrin::JSON
+namespace Wankuma::JSON
 {
 enum NotificationId
 {
@@ -35,7 +35,7 @@ enum NotificationId
 	Null,			//	null
 };
 
-//	パース結果のコールバック受け取りメソッド( bool func( Morrin::JSON::NodeType nodeType, const std::string_view& node ) )
+//	パース結果のコールバック受け取りメソッド( bool func( Wankuma::JSON::NodeType nodeType, const std::string_view& node ) )
 using ParseCallBack = std::function<bool( NotificationId id, const std::string_view& value )> const;
 
 //	JSONパースエンジン本体

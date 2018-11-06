@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace Morrin::JSON
+namespace Wankuma::JSON
 {
 inline  bool IsWhiteSpace( std::string_view::value_type value )
 {
@@ -351,4 +351,4 @@ std::string APIENTRY ExtractEscapeString( const std::string_view& escapeValue )
 	}
 	return resultU8Str;
 }
-}//	namespace Morrin::JSON
+}//	namespace Wankuma::JSON
