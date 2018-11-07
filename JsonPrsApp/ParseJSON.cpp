@@ -259,18 +259,12 @@ bool APIENTRY ParseJSON( const std::string_view& rowData, ParseCallBack& proc )
 {
 	std::string_view::size_type offset = 0;
 	//	開始を通知(空文字列)
-	if( !proc( NotificationId::StartParse, rowData ) )
+	if( !proc( NotificationId::StartParse, "" ) )
 	{
 		return false;
 	}
 	while( offset < rowData.length() )
 	{
-		offset = SkipWhiteSpace( rowData, offset );
-		//	ホワイトスペースを除外したらなくなったらその時点で終わる(Element の前後にWhiteSpaceがある)
-		if( offset >= rowData.length() )
-		{
-			break;
-		}
 		//	何らかの理由でパースが失敗した(通常は、コールバックが停止を返した)ら、処理は終了
 		if( !ParseElement( proc, rowData, offset ) )
 		{
@@ -278,6 +272,9 @@ bool APIENTRY ParseJSON( const std::string_view& rowData, ParseCallBack& proc )
 		}
 	}
 	//	終了を通知。offset の位置で判定可能なので必要があればそれを見ることとする
+	_ASSERTE( offset <= rowData.length() );
+	//	オーバーしていると例外が出るので、末端を超えないようにする(プログラム的には末尾を超えることはないはずなのだが。。。)
+	if( offset > rowData.length() )	offset = rowData.length();
 	return proc( NotificationId::EndParse, rowData.substr( offset ) );	//	なにか残ってるという想定で全部送り込んでやる(さらにネスト的な処理があってもよいという判定)
 }
 //	テキストのエスケープ処理を解決する
@@ -293,6 +290,7 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 			resultStr += value.substr( prevPos, pos-prevPos );
 		}
 	};
+	std::wstring u16str;
 	while( pos < value.length() )
 	{
 		//	エスケープ記号
@@ -301,38 +299,120 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 			SetPrevStr();
 			prevPos = std::string_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
 			++pos;	//	無視
-			switch( value[pos] )
+			if( value[pos] == 'u' )
 			{
-			case 'u':
+				//	文字コードエスケープだとサロゲートペアなども考えられるので、一通り文字化してから処理するように変更。
+				++pos;	//	無視
+				wchar_t ch = 0;
+				for( int cnt = 0 ; cnt < 4 && isxdigit( value[pos] ) ; ++cnt, ++pos )
 				{
-					wchar_t ch = 0;
-					for( int cnt = 0 ; cnt < 4 && isxdigit( value[pos] ) ; ++cnt, ++pos )
+					if( isdigit( value[pos] ) )
 					{
-						if( isdigit( value[pos] ) )
-						{
-							ch = (ch << 4) + (value[pos] - '0');
-						}
-						else
-						{
-							ch = (ch<<4) + ( (toupper( value[pos] ) - 'A') + 0xA);
-						}
+						ch = (ch << 4) + (value[pos] - '0');
 					}
-					char utf8str[4+1];	//	UTF8は最大4文字に分解される
-					WideCharToMultiByte( CP_UTF8, 0, &ch, 1, utf8str, 4+1, nullptr, nullptr );
-					resultStr += utf8str;
+					else
+					{
+						ch = (ch<<4) + ((toupper( value[pos] ) - 'A') + 0xA);
+					}
 				}
-				break;
-			//	そのまま利用していい文字
-			case '"': case '\\': case '/':
-				resultStr += value[pos];
+				u16str += ch;
+			}
+			else
+			{
+				if( !u16str.empty() )
+				{
+					resultStr += CW2A( u16str.c_str(), CP_UTF8 );
+					u16str.clear();
+				}
+				switch( value[pos] )
+				{
+				//	そのまま利用していい文字
+				case '"': case '\\': case '/':	resultStr += value[pos];	break;
+				//	制御文字なのでちゃんと変換する
+				case 'b':						resultStr += '\b';	break;
+				case 'n':						resultStr += '\n';	break;
+				case 'r':						resultStr += '\r';	break;
+				case 't':						resultStr += '\t';	break;
+				default:	return false;
+				}
 				++pos;
-			//	制御文字なのでちゃんと変換する
-			case 'b':	resultStr += '\b';	break;
-			case 'n':	resultStr += '\n';	break;
-			case 'r':	resultStr += '\r';	break;
-			case 't':	resultStr += '\t';	break;
-			default:
-				return false;
+			}
+		}
+		else
+		{
+			if( !u16str.empty() )
+			{
+				resultStr += CW2A( u16str.c_str(), CP_UTF8 );
+				u16str.clear();
+			}
+			if( prevPos == std::string_view::npos )
+			{
+				prevPos = pos;
+			}
+			++pos;
+		}
+	}
+	SetPrevStr();
+	return resultStr;
+}
+std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
+{
+	std::string_view::size_type pos = 0;
+	std::wstring resultStr;
+	auto prevPos = pos;
+	auto SetPrevStr = [&]()
+	{
+		if( prevPos != std::string_view::npos )
+		{
+			auto length = pos-prevPos;
+			const auto& u8str = value.substr( prevPos, length );
+			auto u16len = MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, nullptr, 0 );
+			std::wstring u16str;
+			u16str.resize( u16len );
+			MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, &u16str[0], u16str.size() );
+			resultStr += u16str;
+		}
+	};
+	while( pos < value.length() )
+	{
+		//	エスケープ記号
+		if( value[pos] == '\\' )
+		{
+			SetPrevStr();
+			prevPos = std::string_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
+			++pos;	//	無視
+			if( value[pos] == 'u' )
+			{
+				//	文字コードエスケープだとサロゲートペアなども考えられるので、一通り文字化してから処理するように変更。
+				++pos;	//	無視
+				wchar_t ch = 0;
+				for( int cnt = 0 ; cnt < 4 && isxdigit( value[pos] ) ; ++cnt, ++pos )
+				{
+					if( isdigit( value[pos] ) )
+					{
+						ch = (ch << 4) + (value[pos] - '0');
+					}
+					else
+					{
+						ch = (ch<<4) + ((toupper( value[pos] ) - 'A') + 0xA);
+					}
+				}
+				resultStr += ch;
+			}
+			else
+			{
+				switch( value[pos] )
+				{
+				//	そのまま利用していい文字
+				case '"': case '\\': case '/':	resultStr += value[pos];	break;
+				//	制御文字なのでちゃんと変換する
+				case 'b':						resultStr += L'\b';	break;
+				case 'n':						resultStr += L'\n';	break;
+				case 'r':						resultStr += L'\r';	break;
+				case 't':						resultStr += L'\t';	break;
+				default:	return false;
+				}
+				++pos;
 			}
 		}
 		else
@@ -366,10 +446,10 @@ std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeN
 		if( value[pos] > 0xFF && escapeNonAscii )
 		{
 			SetPrevStr();
-			//	wchar_t の数値を16進文字列にするのは。。。ないんだよねぇ。。。
-			wchar_t	buff[5];
+			//	16進数でテキスト化するメソッドがないので、ultow を使う。
+			wchar_t	buff[_MAX_ULTOSTR_BASE16_COUNT];	//	念のため最大値を確保しておく
 			resultStr += L"\\u";
-			_ultow_s( value[pos], buff, 16 );
+			_ultow_s( value[pos], buff, 16 );	// sizeof(wchar_t) == sizeof(WORD) だけど。。。なｗ
 			resultStr += buff;
 		}
 		else

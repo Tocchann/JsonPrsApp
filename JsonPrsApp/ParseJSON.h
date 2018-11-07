@@ -38,8 +38,9 @@ using ParseCallBack = std::function<bool( NotificationId id, const std::string_v
 
 //	JSONパースエンジン本体
 bool APIENTRY ParseJSON( const std::string_view& rowData, ParseCallBack& proc );
-//	string_view が参照しているエスケープされたままのテキストを、UTF8テキストに変換する
+//	string_view が参照しているエスケープされたままのテキストを、UTF8/UNICODEテキストに変換する
 std::string APIENTRY UnescapeString( const std::string_view& value );
+std::wstring APIENTRY UnescapeWstring( const std::string_view& value );
 //	wstring ベースで、エスケープ処理を行う(UTF8への変換は行わない点に注意)
 std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeNonAscii );
 
