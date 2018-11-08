@@ -1,11 +1,7 @@
 //	速度優先型JSONパーサー C++17版
 
-//	コンセプト
-//	目指せ最速！だからコピーしない！
-//	できるだけ型は既定のものを使う！
-//	JSONデータの書式の規定は http://www.json.org/json-ja.html を参照(2018/11/05時点)
-
-//	C++17 モードが有効になっていないとコンパイルできない
+//	コンセプト：コピーしない！
+//	JSONデータの書式の規定は http://www.json.org/json-ja.html を参照(2018/11/05時点の内容に準拠)
 
 #include <string>		// std::string
 #include <string_view>	// std::string_view
