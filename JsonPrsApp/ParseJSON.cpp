@@ -201,13 +201,15 @@ static bool ParseNumberValue( ParseCallBack& proc, const std::string_view& rowDa
 {
 	//	数値データは、数字もしくは、- で始まる。
 	_ASSERTE( isdigit( rowData[offset] ) || rowData[offset] == '-' );	//	数値または、- で始まる
-	//	整数ばかりとは限らないので、数値データは文字列のまま渡す。理想は、int/double 当たりなんだろうけど。。。
+	//	値の正当性を考慮しないなら、デリミタ(,]} or WhiteSpace))までスキップするほうが速いけど、値の正当性は確保する。
 	auto start = rowData.data()+offset;
 	char* end = nullptr;
 	auto doubleValue = strtod( start, &end );
 	auto length = end-start;
 	auto value = rowData.substr( offset, length );
 	offset += length;
+	//	後続は、WhiteSpace のほか、次のデータのための区切り(,オブジェクトの開始と終了、配列の開始と終了)のいずれかになる
+	_ASSERTE( IsWhiteSpace( rowData[offset] ) || rowData[offset] == ',' || rowData[offset] == '{' || rowData[offset] == '}' || rowData[offset] == '[' || rowData[offset] == ']' );
 	return proc( NotificationId::Digit, value );
 }
 static std::string_view ExtractStringValue( const std::string_view& rowData, std::string_view::size_type& offset )
@@ -224,26 +226,18 @@ static std::string_view ExtractStringValue( const std::string_view& rowData, std
 			switch( rowData[offset++] )
 			{
 			case 'u':
-				//	規定で4文字だけど念のため。厳格チェックしない場合は+4でスキップしてよい
-				for( int cnt = 0 ; cnt < 4 ; ++cnt, ++offset )
-				{
-					//	本当は途中で終わるとか言語道断レベルよね。。。
-					if( !isxdigit( rowData[offset] ) )
-					{
-						return false;
-					}
-				}
+				//	規定で4文字。ちゃんとHEXがあることをチェック
+				if( !isxdigit( rowData[offset++] ) ){	return false;	}
+				if( !isxdigit( rowData[offset++] ) ){	return false;	}
+				if( !isxdigit( rowData[offset++] ) ){	return false;	}
+				if( !isxdigit( rowData[offset++] ) ){	return false;	}
 				break;
 			//	厳格チェックしない場合は、このあたりはコメントアウトでよい
-			case '"':
-			case '\\':
-			case '/':
-			case 'b':
-			case 'n':
-			case 'r':
-			case 't':
+			case '"': case '/': case 'b': case '\\':
+			case 'n': case 'r': case 't':
 				break;
 			default:
+				//	知らない記号がエスケープされていたらエラーにする(知らないもの)
 				return false;
 			}
 		}
@@ -283,9 +277,9 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 	std::string_view::size_type pos = 0;
 	std::string resultStr;
 	auto prevPos = pos;
-	auto SetPrevStr = [&]()
+	auto SetPrevStr = []( decltype(value) value, decltype(pos) pos, decltype(pos) prevPos, decltype(resultStr)& resultStr )
 	{
-		if( prevPos != std::string_view::npos )
+		if( prevPos != value.npos )
 		{
 			resultStr += value.substr( prevPos, pos-prevPos );
 		}
@@ -296,13 +290,12 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 		//	エスケープ記号
 		if( value[pos] == '\\' )
 		{
-			SetPrevStr();
+			SetPrevStr( value, pos, prevPos, resultStr );
 			prevPos = std::string_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
-			++pos;	//	無視
+			++pos;
 			if( value[pos] == 'u' )
 			{
-				//	文字コードエスケープだとサロゲートペアなども考えられるので、一通り文字化してから処理するように変更。
-				++pos;	//	無視
+				++pos;
 				wchar_t ch = 0;
 				for( int cnt = 0 ; cnt < 4 && isxdigit( value[pos] ) ; ++cnt, ++pos )
 				{
@@ -352,7 +345,7 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 			++pos;
 		}
 	}
-	SetPrevStr();
+	SetPrevStr( value, pos, prevPos, resultStr );
 	return resultStr;
 }
 std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
@@ -360,7 +353,7 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 	std::string_view::size_type pos = 0;
 	std::wstring resultStr;
 	auto prevPos = pos;
-	auto SetPrevStr = [&]()
+	auto SetPrevStr = []( decltype(value) value, decltype(pos) pos, decltype(pos) prevPos, decltype(resultStr)& resultStr )
 	{
 		if( prevPos != std::string_view::npos )
 		{
@@ -378,7 +371,7 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 		//	エスケープ記号
 		if( value[pos] == '\\' )
 		{
-			SetPrevStr();
+			SetPrevStr( value, pos, prevPos, resultStr );
 			prevPos = std::string_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
 			++pos;	//	無視
 			if( value[pos] == 'u' )
@@ -397,6 +390,7 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 						ch = (ch<<4) + ((toupper( value[pos] ) - 'A') + 0xA);
 					}
 				}
+				//	UNICODE文字なのでそのまま追加すればいい
 				resultStr += ch;
 			}
 			else
@@ -405,7 +399,7 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 				{
 				//	そのまま利用していい文字
 				case '"': case '\\': case '/':	resultStr += value[pos];	break;
-				//	制御文字なのでちゃんと変換する
+				//	制御文字に変換する
 				case 'b':						resultStr += L'\b';	break;
 				case 'n':						resultStr += L'\n';	break;
 				case 'r':						resultStr += L'\r';	break;
@@ -424,7 +418,7 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 			++pos;
 		}
 	}
-	SetPrevStr();
+	SetPrevStr( value, pos, prevPos, resultStr );
 	return resultStr;
 }
 std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeNonAscii )
@@ -432,7 +426,7 @@ std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeN
 	std::wstring_view::size_type pos = 0;
 	std::wstring resultStr;
 	auto prevPos = pos;
-	auto SetPrevStr = [&]()
+	auto SetPrevStr = []( decltype(value) value, decltype(pos) pos, decltype(pos) prevPos, decltype(resultStr)& resultStr )
 	{
 		if( prevPos != std::wstring_view::npos )
 		{
@@ -445,34 +439,40 @@ std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeN
 		//	1バイトで表現できない文字をエスケープする
 		if( value[pos] > 0xFF && escapeNonAscii )
 		{
-			SetPrevStr();
 			//	16進数でテキスト化するメソッドがないので、ultow を使う。
 			wchar_t	buff[_MAX_ULTOSTR_BASE16_COUNT];	//	念のため最大値を確保しておく
-			resultStr += L"\\u";
 			_ultow_s( value[pos], buff, 16 );	// sizeof(wchar_t) == sizeof(WORD) だけど。。。なｗ
+			SetPrevStr( value, pos, prevPos, resultStr );
+			resultStr += L"\\u";
 			resultStr += buff;
 		}
 		else
 		{
+			LPCWSTR addStr = nullptr;
 			switch( value[pos] )
 			{
-			case L'\b':	SetPrevStr();	resultStr += L"\\b";	break;
-			case L'\n':	SetPrevStr();	resultStr += L"\\n";	break;
-			case L'\r':	SetPrevStr();	resultStr += L"\\r";	break;
-			case L'\t':	SetPrevStr();	resultStr += L"\\t";	break;
-			case L'/':	SetPrevStr();	resultStr += L"\\/";	break;
-			case L'"':	SetPrevStr();	resultStr += L"\\\"";	break;
-			case L'\\':	SetPrevStr();	resultStr += L"\\\\";	break;
+			case L'\b':	addStr = L"\\b";	break;
+			case L'\n':	addStr = L"\\n";	break;
+			case L'\r':	addStr = L"\\r";	break;
+			case L'\t':	addStr = L"\\t";	break;
+			case L'/':	addStr = L"\\/";	break;
+			case L'"':	addStr = L"\\\"";	break;
+			case L'\\':	addStr = L"\\\\";	break;
 			default:
 				if( prevPos == std::wstring_view::npos )
 				{
 					prevPos = pos;
 				}
 			}
+			if( addStr != nullptr )
+			{
+				SetPrevStr( value, pos, prevPos, resultStr );
+				resultStr += addStr;
+			}
 		}
 		++pos;
 	}
-	SetPrevStr();
+	SetPrevStr( value, pos, prevPos, resultStr );
 	return resultStr;
 }
 
