@@ -362,7 +362,7 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 			auto u16len = MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, nullptr, 0 );
 			std::wstring u16str;
 			u16str.resize( u16len );
-			MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, &u16str[0], u16str.size() );
+			MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, u16str.data(), u16str.size() );
 			resultStr += u16str;
 		}
 	};
@@ -433,6 +433,7 @@ std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeN
 			resultStr += value.substr( prevPos, pos-prevPos );
 			prevPos = std::wstring_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
 		}
+		return prevPos;
 	};
 	while( pos < value.length() )
 	{
@@ -442,7 +443,7 @@ std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeN
 			//	16進数でテキスト化するメソッドがないので、ultow を使う。
 			wchar_t	buff[_MAX_ULTOSTR_BASE16_COUNT];	//	念のため最大値を確保しておく
 			_ultow_s( value[pos], buff, 16 );	// sizeof(wchar_t) == sizeof(WORD) だけど。。。なｗ
-			SetPrevStr( value, pos, prevPos, resultStr );
+			prevPos = SetPrevStr( value, pos, prevPos, resultStr );
 			resultStr += L"\\u";
 			resultStr += buff;
 		}
@@ -466,7 +467,7 @@ std::wstring APIENTRY EscapeString( const std::wstring_view& value, bool escapeN
 			}
 			if( addStr != nullptr )
 			{
-				SetPrevStr( value, pos, prevPos, resultStr );
+				prevPos = SetPrevStr( value, pos, prevPos, resultStr );
 				resultStr += addStr;
 			}
 		}
