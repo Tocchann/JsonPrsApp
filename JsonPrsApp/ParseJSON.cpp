@@ -8,10 +8,10 @@ inline  bool IsWhiteSpace( std::string_view::value_type value )
 	//	ホワイトスペースとして規定されている。isspace とはちょっと違うので定義を厳格化
 	switch( value )
 	{
-	case ' ':
-	case '\t':
-	case '\r':
-	case '\n':
+	case u8' ':
+	case u8'\t':
+	case u8'\r':
+	case u8'\n':
 		return true;
 	}
 	return false;
@@ -47,39 +47,39 @@ static bool ParseElement( ParseCallBack& proc, const std::string_view& rowData, 
 	{
 		switch( rowData[offset] )
 		{
-		case '{':	//	object
+		case u8'{':	//	object
 			if( !ParseObject( proc, rowData, offset ) )
 			{
 				return false;
 			}
 			break;
-		case '[':	//	array
+		case u8'[':	//	array
 			if( !ParseArray( proc, rowData, offset ) )
 			{
 				return false;
 			}
 			break;
-		case '"':	//	string
+		case u8'"':	//	string
 			//	オブジェクトの途中ではないので、オブジェクトキーではない
 			if( !ParseStringValue( proc, rowData, offset ) )
 			{
 				return false;
 			}
 			break;
-		case 't':	//	リテラルチェック == true
-			if( !ParseLiteralValue( proc, rowData, offset, "true", NotificationId::True ) )
+		case u8't':	//	リテラルチェック == true
+			if( !ParseLiteralValue( proc, rowData, offset, u8"true", NotificationId::True ) )
 			{
 				return false;
 			}
 			break;
-		case 'f':	//	リテラルチェック == false
-			if( !ParseLiteralValue( proc, rowData, offset, "false", NotificationId::False ) )
+		case u8'f':	//	リテラルチェック == false
+			if( !ParseLiteralValue( proc, rowData, offset, u8"false", NotificationId::False ) )
 			{
 				return false;
 			}
 			break;
-		case 'n':	//	リテラルチェック == null
-			if( !ParseLiteralValue( proc, rowData, offset, "null", NotificationId::Null ) )
+		case u8'n':	//	リテラルチェック == null
+			if( !ParseLiteralValue( proc, rowData, offset, u8"null", NotificationId::Null ) )
 			{
 				return false;
 			}
@@ -99,7 +99,12 @@ static bool ParseElement( ParseCallBack& proc, const std::string_view& rowData, 
 static bool ParseMember( ParseCallBack& proc, const std::string_view& rowData, std::string_view::size_type& offset )
 {
 	offset = SkipWhiteSpace( rowData, offset );	//	'{' の次から空白部分を除外
-	_ASSERTE( rowData[offset] == '"' );
+	//	空ブロックの場合がある
+	if( rowData[offset] == u8'}' )
+	{
+		return true;
+	}
+	_ASSERTE( rowData[offset] == u8'"' );
 	auto key = ExtractStringValue( rowData, offset );
 	if( !proc( NotificationId::Key, key ) )
 	{
@@ -108,7 +113,7 @@ static bool ParseMember( ParseCallBack& proc, const std::string_view& rowData, s
 	offset = SkipWhiteSpace( rowData, offset );
 	_ASSERTE( rowData[offset] == ':' );
 	//	データがおかしい場合はそこで終了でいい
-	if( rowData[offset++] != ':' )
+	if( rowData[offset++] != u8':' )
 	{
 		return false;
 	}
@@ -147,7 +152,7 @@ static bool ParseValues( std::function<bool( ParseCallBack& proc, const std::str
 }
 static bool ParseObject( ParseCallBack& proc, const std::string_view& rowData, std::string_view::size_type& offset )
 {
-	_ASSERTE( rowData[offset] == '{' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
+	_ASSERTE( rowData[offset] == u8'{' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
 	if( !proc( NotificationId::StartObject, rowData.substr( offset++, 1 ) ) )
 	{
 		return false;
@@ -156,8 +161,8 @@ static bool ParseObject( ParseCallBack& proc, const std::string_view& rowData, s
 	{
 		return false;
 	}
-	_ASSERTE( rowData[offset] == '}' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
-	if( rowData[offset] != '}' )
+	_ASSERTE( rowData[offset] == u8'}' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
+	if( rowData[offset] != u8'}' )
 	{
 		return false;
 	}
@@ -165,18 +170,23 @@ static bool ParseObject( ParseCallBack& proc, const std::string_view& rowData, s
 }
 static bool ParseArray( ParseCallBack& proc, const std::string_view& rowData, std::string_view::size_type& offset )
 {
-	_ASSERTE( rowData[offset] == '[' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
+	_ASSERTE( rowData[offset] == u8'[' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
 	if( !proc( NotificationId::StartArray, rowData.substr( offset++, 1 ) ) )
 	{
 		return false;
 	}
-	if( !ParseValues( ParseElement, proc, rowData, offset ) )
-	{
-		return false;
-	}
+	_ASSERTE( offset < rowData.length() );
 	offset = SkipWhiteSpace( rowData, offset );
-	_ASSERTE( rowData[offset] == ']' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
-	if( rowData[offset] != ']' )
+	if( offset < rowData.length() && rowData[offset] != u8']' )
+	{
+		if( !ParseValues( ParseElement, proc, rowData, offset ) )
+		{
+			return false;
+		}
+		offset = SkipWhiteSpace( rowData, offset );
+	}
+	_ASSERTE( rowData[offset] == u8']' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
+	if( rowData[offset] != u8']' )
 	{
 		return false;
 	}
@@ -184,7 +194,7 @@ static bool ParseArray( ParseCallBack& proc, const std::string_view& rowData, st
 }
 static bool ParseStringValue( ParseCallBack& proc, const std::string_view& rowData, std::string_view::size_type& offset )
 {
-	_ASSERTE( rowData[offset] == '"' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
+	_ASSERTE( rowData[offset] == u8'"' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
 	auto value = ExtractStringValue( rowData, offset );	//	末尾の '"' の次まで移動。実際の値は参照しないけど、ここで切り出しているので長さは見れる
 	return proc( NotificationId::String, value );
 }
@@ -214,14 +224,14 @@ static bool ParseNumberValue( ParseCallBack& proc, const std::string_view& rowDa
 }
 static std::string_view ExtractStringValue( const std::string_view& rowData, std::string_view::size_type& offset )
 {
-	_ASSERTE( rowData[offset] == '"' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
+	_ASSERTE( rowData[offset] == u8'"' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
 	++offset;	//	'"' をスキップ
 	auto start = offset;
 	//	テキストの終端部分までステップする
 	while( offset < rowData.length() && rowData[offset] != '"' )
 	{
 		//	エスケープ記号
-		if( rowData[offset++] == '\\' )
+		if( rowData[offset++] == u8'\\' )
 		{
 			switch( rowData[offset++] )
 			{
@@ -233,8 +243,8 @@ static std::string_view ExtractStringValue( const std::string_view& rowData, std
 				if( !isxdigit( rowData[offset++] ) ){	return false;	}
 				break;
 			//	厳格チェックしない場合は、このあたりはコメントアウトでよい
-			case '"': case '/': case 'b': case '\\':
-			case 'n': case 'r': case 't':
+			case u8'"': case u8'/': case u8'b': case u8'\\':
+			case u8'n': case u8'r': case u8't':
 				break;
 			default:
 				//	知らない記号がエスケープされていたらエラーにする(知らないもの)
@@ -242,7 +252,7 @@ static std::string_view ExtractStringValue( const std::string_view& rowData, std
 			}
 		}
 	}
-	_ASSERTE( rowData[offset] == '"' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
+	_ASSERTE( rowData[offset] == u8'"' );	//	手前でスキップしないので、ここで再度値チェックできるようにしておく
 	auto result = rowData.substr( start, offset-start );
 	++offset;
 	return result;
@@ -253,7 +263,7 @@ bool APIENTRY ParseJSON( const std::string_view& rowData, ParseCallBack& proc )
 {
 	std::string_view::size_type offset = 0;
 	//	開始を通知(空文字列)
-	if( !proc( NotificationId::StartParse, "" ) )
+	if( !proc( NotificationId::StartParse, u8"" ) )
 	{
 		return false;
 	}
@@ -288,12 +298,12 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 	while( pos < value.length() )
 	{
 		//	エスケープ記号
-		if( value[pos] == '\\' )
+		if( value[pos] == u8'\\' )
 		{
 			SetPrevStr( value, pos, prevPos, resultStr );
 			prevPos = std::string_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
 			++pos;
-			if( value[pos] == 'u' )
+			if( value[pos] == u8'u' )
 			{
 				++pos;
 				wchar_t ch = 0;
@@ -301,11 +311,11 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 				{
 					if( isdigit( value[pos] ) )
 					{
-						ch = (ch << 4) + (value[pos] - '0');
+						ch = (ch << 4) + (value[pos] - u8'0');
 					}
 					else
 					{
-						ch = (ch<<4) + ((toupper( value[pos] ) - 'A') + 0xA);
+						ch = (ch<<4) + ((toupper( value[pos] ) - u8'A') + 0xA);
 					}
 				}
 				u16str += ch;
@@ -320,12 +330,12 @@ std::string APIENTRY UnescapeString( const std::string_view& value )
 				switch( value[pos] )
 				{
 				//	そのまま利用していい文字
-				case '"': case '\\': case '/':	resultStr += value[pos];	break;
+				case u8'"': case u8'\\': case u8'/':	resultStr += value[pos];	break;
 				//	制御文字なのでちゃんと変換する
-				case 'b':						resultStr += '\b';	break;
-				case 'n':						resultStr += '\n';	break;
-				case 'r':						resultStr += '\r';	break;
-				case 't':						resultStr += '\t';	break;
+				case u8'b':						resultStr += u8'\b';	break;
+				case u8'n':						resultStr += u8'\n';	break;
+				case u8'r':						resultStr += u8'\r';	break;
+				case u8't':						resultStr += u8'\t';	break;
 				default:	return false;
 				}
 				++pos;
@@ -369,12 +379,12 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 	while( pos < value.length() )
 	{
 		//	エスケープ記号
-		if( value[pos] == '\\' )
+		if( value[pos] == u8'\\' )
 		{
 			SetPrevStr( value, pos, prevPos, resultStr );
 			prevPos = std::string_view::npos;	//	エスケープ文字をセットしたので、以前の位置をクリアー
 			++pos;	//	無視
-			if( value[pos] == 'u' )
+			if( value[pos] == u8'u' )
 			{
 				//	文字コードエスケープだとサロゲートペアなども考えられるので、一通り文字化してから処理するように変更。
 				++pos;	//	無視
@@ -383,11 +393,11 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 				{
 					if( isdigit( value[pos] ) )
 					{
-						ch = (ch << 4) + (value[pos] - '0');
+						ch = (ch << 4) + (value[pos] - u8'0');
 					}
 					else
 					{
-						ch = (ch<<4) + ((toupper( value[pos] ) - 'A') + 0xA);
+						ch = (ch<<4) + ((toupper( value[pos] ) - u8'A') + 0xA);
 					}
 				}
 				//	UNICODE文字なのでそのまま追加すればいい
@@ -398,12 +408,12 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 				switch( value[pos] )
 				{
 				//	そのまま利用していい文字
-				case '"': case '\\': case '/':	resultStr += value[pos];	break;
+				case u8'"': case u8'\\': case u8'/':	resultStr += value[pos];	break;
 				//	制御文字に変換する
-				case 'b':						resultStr += L'\b';	break;
-				case 'n':						resultStr += L'\n';	break;
-				case 'r':						resultStr += L'\r';	break;
-				case 't':						resultStr += L'\t';	break;
+				case u8'b':						resultStr += L'\b';	break;
+				case u8'n':						resultStr += L'\n';	break;
+				case u8'r':						resultStr += L'\r';	break;
+				case u8't':						resultStr += L'\t';	break;
 				default:	return false;
 				}
 				++pos;
