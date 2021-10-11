@@ -367,12 +367,12 @@ std::wstring APIENTRY UnescapeWstring( const std::string_view& value )
 	{
 		if( prevPos != std::string_view::npos )
 		{
-			auto length = pos-prevPos;
+			int length = static_cast<int>(pos-prevPos);
 			const auto& u8str = value.substr( prevPos, length );
 			auto u16len = MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, nullptr, 0 );
 			std::wstring u16str;
 			u16str.resize( u16len );
-			MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, u16str.data(), u16str.size() );
+			MultiByteToWideChar( CP_UTF8, 0, u8str.data(), length, u16str.data(), static_cast<int>( u16str.size() ) );
 			resultStr += u16str;
 		}
 	};
